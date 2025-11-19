@@ -1,2 +1,17 @@
-# DL-Project
-this is my acadamic project for deep learning in sep term
+
+# DL-GenAI Baseline (23f2002023)
+
+## What's included
+- scripts/train.py   -> TF-IDF + LogisticRegression baseline trainer
+- scripts/predict.py -> Create submission.csv from saved model
+- requirements.txt
+
+## How to run (example)
+1. Install dependencies:
+   `pip install -r requirements.txt`
+
+2. Train:
+   `python scripts/train.py --train_csv data/raw/train.csv --output_dir models`
+
+3. Predict:
+   `python scripts/predict.py --test_csv data/raw/test.csv --model_dir models --output_csv submission.csv`
