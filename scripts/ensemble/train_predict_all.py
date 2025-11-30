@@ -199,8 +199,29 @@ def main(args):
 
 if __name__ == "__main__":
     p = argparse.ArgumentParser()
+
     p.add_argument("--train_csv", type=str, required=True)
     p.add_argument("--test_csv", type=str, required=True)
     p.add_argument("--epochs", type=int, default=2)
+
+    # ⭐ NEW ARGUMENTS (Fix)
+    p.add_argument("--output_dir", type=str, default="/kaggle/working/ensemble-run")
+    p.add_argument("--wandb_project", type=str, default=None)
+    p.add_argument("--run_name", type=str, default="ensemble-run")
+
     args = p.parse_args()
+
+    # ⭐ WandB Init (optional)
+    if args.wandb_project:
+        try:
+            import wandb
+            from kaggle_secrets import UserSecretsClient
+
+            key = UserSecretsClient().get_secret("WANDB_API_KEY")
+            wandb.login(key=key)
+
+            wandb.init(project=args.wandb_project, name=args.run_name, config=vars(args))
+        except:
+            print("⚠️ WandB not available, continuing without logging.")
+
     main(args)
