@@ -181,8 +181,8 @@ def ensemble_results(test_csv):
     for col in LABEL_COLS:
         final[col] = ((df1[col] + df2[col] + df3[col]) / 3 >= 0.5).astype(int)
 
-    final.to_csv("/kaggle/working/submission_ensemble.csv", index=False)
-    print("Saved ENSEMBLE → submission_ensemble.csv")
+    final.to_csv("/kaggle/working/submission.csv", index=False)
+    print("Saved ENSEMBLE → submission.csv")
 
 # -------------------------- MAIN --------------------------
 def main(args):
