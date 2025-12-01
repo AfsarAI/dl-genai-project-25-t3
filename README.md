@@ -1,85 +1,131 @@
+# 🧠 Multi-Label Emotion Classification: Deep Learning & GenAI Project
+### Course: IITM BS Degree - Deep Learning Practice (23f2002023)
 
-# DL-GenAI Project Baseline (23f2002023)
+![Project Status](https://img.shields.io/badge/Status-Completed-success)
+![Python](https://img.shields.io/badge/Python-3.10+-blue)
+![PyTorch](https://img.shields.io/badge/PyTorch-2.0+-red)
+![WandB](https://img.shields.io/badge/WandB-Tracking-orange)
 
-## Project Overview & Level 1 Viva Checkpoints
+## 📖 Project Overview
+This project focuses on **Multi-Label Text Classification** to detect emotions in text. Unlike standard classification, a single text can have multiple emotions simultaneously (e.g., both 'Sadness' and 'Fear').
 
-This project aims to develop and compare multiple deep learning models for multi-label text classification. The structure and development adhere to the following Level 1 Viva checkpoints:
+The goal is to build a robust pipeline comparing a **Baseline Model (Scratch)** against **State-of-the-Art Transformer Models**, and finally boosting performance using **Ensemble Learning**.
 
-1.  **Model Completion**: At least three unique models are implemented. Currently, this includes:
-    *   A model built **from scratch** (TF-IDF + MLP).
-    *   A **pretrained** transformer model (e.g., RoBERTa, DeBERTa).
-    *   (Future: A third model of choice).
+**Emotions Tracked:** `anger`, `fear`, `joy`, `sadness`, `surprise`
 
-2.  **Wandb Tracking**: All model training runs are tracked using Weights & Biases (W&B). This allows for easy comparison of model performance (e.g., F1 score, accuracy) across different experiments.
+---
 
-## What's Included
--   `scripts/scratch/train.py`: Script to train the TF-IDF + "from scratch" MLP model.
--   `scripts/scratch/predict.py`: Script to generate predictions using the TF-IDF + "from scratch" MLP model.
--   `scripts/pretrained/train_transformer_multilabel.py`: Script to train a pretrained transformer model (e.g., RoBERTa).
--   `scripts/pretrained/predict_transformer.py`: Script to generate predictions using a pretrained transformer model (e.g., RoBERTa).
--   `scripts/extra/`: Directory for a third model of choice (currently empty).
--   `requirements.txt`: List of Python dependencies.
--   `.gitignore`: Specifies files/directories to be ignored by Git.
+## 📂 Project Structure & File Description
 
-## How to Run (Example for Scratch MLP)
+The codebase is modular, separating preprocessing, training, and inference logic for clarity.
 
-1.  **Install dependencies**:
-    ```bash
-    pip install -r requirements.txt
-    ```
+    .
+    ├── scripts/                                 # All training / inference code
+    │   │
+    │   ├── scratch/                              # Baseline Approach (TF-IDF + MLP)
+    │   │     ├── train.py                        # Train the MLP model
+    │   │     └── predict.py                      # Predict using saved MLP
+    │   │
+    │   ├── pretrained/                           # Transformer Fine-tuning
+    │   │     ├── train_transformer.py            # Fine-tune BERT / RoBERTa
+    │   │     └── predict_transformer.py          # Transformer inference logic
+    │   │
+    │   └── ensemble/                             # Model Averaging (Ensemble)
+    │         └── train_predict_all.py            # Train multiple models & combine
+    │
+    ├── models/                                   # Saved checkpoints (.pth / .pt)
+    │
+    ├── data/                                     # Raw train/test CSV datasets
+    │
+    ├── requirements.txt                          # Python dependencies
+    │
+    └── README.md                                 # Project documentation
 
-2.  **Train the scratch MLP model** (with W&B tracking):
-    ```bash
-    python scripts/scratch/train.py --train_csv data/raw/train.csv --output_dir models/scratch --use_wandb --wandb_project 23f2002023-dl-genai-project --run_name "tfidf-mlp-scratch"
-    ```
+---
 
-3.  **Predict using the scratch MLP model**:
-    ```bash
-    python scripts/scratch/predict.py --test_csv data/raw/test.csv --model_dir models/scratch --output_csv submission_scratch_mlp.csv
-    ```
+## 🚀 Methodology & Approaches
 
-4.  **Submit to Kaggle** (after generating `submission_scratch_mlp.csv`):
-    ```bash
-    kaggle competitions submit -c 2025-sep-dl-gen-ai-project -f submission_scratch_mlp.csv -m "TF-IDF + Scratch MLP baseline"
-    ```
+### Approach 1: The Baseline (From Scratch) 🏗️
+* **Technique:** TF-IDF (Term Frequency-Inverse Document Frequency) + MLP (Multi-Layer Perceptron)
+* **Architecture:**
+    * N-gram vectors (1-gram & 2-gram)
+    * 3 Linear layers + ReLU
+    * Dropout (0.3)
+* **Purpose:** Create a basic benchmark for comparison.
 
-## How to Run (Example for Pretrained RoBERTa)
+---
 
-1.  **Prepare validation split** (if not already done):
-    ```bash
-    # Run the cell that creates data/raw/val.csv from train.csv
-    # (e.g., cell BcS4pOFVcusW or wmckZLovipv1 in the notebook if using optimized scripts)
-    ```
+### Approach 2: Transfer Learning (Pretrained Transformers) 🤖
+**Models Used:**
+- BERT (`bert-base-uncased`)
+- RoBERTa (`roberta-base`)
+- DistilRoBERTa (`distilroberta-base`)
 
-2.  **Train a pretrained transformer model** (e.g., `roberta-base` with W&B tracking):
-    ```bash
-    python scripts/pretrained/train_transformer_multilabel.py \
-      --train_csv data/raw/train.csv \
-      --val_frac 0.1 \
-      --model_name roberta-base \
-      --output_dir models/roberta-base \
-      --epochs 3 \
-      --batch_size 8 \
-      --lr 2e-5 \
-      --wandb_project Main-Trainings \
-      --run_name roberta-run1
-    ```
+**Fine-Tuning:**
+- Custom classification head
+- Loss: `BCEWithLogitsLoss`
+- Optimizer: `AdamW`
 
-3.  **Predict using the pretrained model** (e.g., `roberta-base`):
-    ```bash
-    python scripts/pretrained/predict_transformer.py \
-      --test_csv data/raw/test.csv \
-      --val_csv data/raw/val.csv \
-      --model_dir models/roberta-base \
-      --model_name roberta-base \
-      --tune_threshold \
-      --out submission_roberta.csv
-    ```
+Transforms understand deeper context and semantics compared to TF-IDF.
 
-4.  **Submit to Kaggle**:
-    ```bash
-    kaggle competitions submit \
-      -c 2025-sep-dl-gen-ai-project \
-      -f submission_roberta.csv \
-      -m "Roberta model Run-1 submission"
-    ```
+---
+
+### Approach 3: Ensemble Learning (The Booster) 🤝
+**Soft Voting (Probability Averaging)**
+
+`P_final = (P_bert + P_roberta + P_distil) / 3`
+
+Provides consistently higher F1 scores by reducing variance.
+
+---
+
+## 📊 Experiment Tracking (Weights & Biases)
+Tracked:
+- Train/Val Loss
+- Macro F1 Score
+- Accuracy
+
+WandB helps visualize how transformers outperform baseline and how ensemble performs best.
+
+---
+
+## 💻 How to Run
+
+### 1. Setup Environment
+```bash
+pip install -r requirements.txt
+```
+    
+### 2. Run Baseline (Scratch)
+```bash
+python scripts/scratch/train.py --epochs 10 --use_wandb
+python scripts/scratch/predict.py
+```
+    
+### 3. Run Pretrained Transformers
+```bash
+python scripts/pretrained/train_transformer.py \
+    --local_model_path /path/to/roberta \
+    --run_name roberta-experiment
+```
+
+### 4. Run Ensemble (Full Pipeline)
+```bash
+python scripts/ensemble/train_predict_all.py \
+    --train_csv data/train.csv \
+    --test_csv data/test.csv \
+    --wandb_project DL-GenAI-Ensemble
+```
+
+## 📈 Results & Observations
+
+| Model    | Technique    | Performance          |
+| -------- | ------------ | -------------------- |
+| Scratch  | TF-IDF + MLP | Baseline             |
+| BERT     | Transformer  | High Accuracy        |
+| RoBERTa  | Transformer  | Higher Accuracy      |
+| Ensemble | Voting       | **Best F1 Score 🏆** |
+
+---
+    
+##### Created by **Mohd Afsar** for **DL-GenAI Course** (23f2002023)

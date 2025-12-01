@@ -3,13 +3,21 @@ import argparse
 import numpy as np
 import pandas as pd
 from sklearn.model_selection import train_test_split
-from sklearn.metrics import f1_score
+from sklearn.metrics import f1_score, accuracy_score
 
 import torch
 from torch.utils.data import Dataset, DataLoader
 from transformers import AutoTokenizer, AutoConfig, AutoModel
 from transformers import get_linear_schedule_with_warmup
 from torch.optim import AdamW
+
+# --- WANDB SETUP ---
+try:
+    import wandb
+    from kaggle_secrets import UserSecretsClient
+    WANDB_OK = True
+except:
+    WANDB_OK = False
 
 LABEL_COLS = ["anger","fear","joy","sadness","surprise"]
 os.environ["TRANSFORMERS_NO_ADDITIONAL_TEMPLATES"] = "1"
@@ -77,23 +85,33 @@ def valid_epoch(model, loader, device):
     model.eval()
     all_logits = []
     all_labels = []
+    val_losses = []
+    criterion = torch.nn.BCEWithLogitsLoss()
 
     with torch.no_grad():
         for batch in loader:
             ids = batch["input_ids"].to(device)
             mask = batch["attention_mask"].to(device)
-            labels = batch["labels"].cpu().numpy()
-            logits = model(ids, mask).cpu().numpy()
-            all_logits.append(logits)
-            all_labels.append(labels)
+            labels = batch["labels"].to(device)
+            
+            logits = model(ids, mask)
+            loss = criterion(logits, labels)
+            val_losses.append(loss.item())
+            
+            all_logits.append(logits.cpu().numpy())
+            all_labels.append(labels.cpu().numpy())
 
     logits = np.vstack(all_logits)
     labels = np.vstack(all_labels)
 
     probs = 1 / (1 + np.exp(-logits))
     preds = (probs >= 0.5).astype(int)
+    
+    avg_loss = np.mean(val_losses)
+    f1 = f1_score(labels, preds, average="macro", zero_division=0)
+    acc = accuracy_score(labels.flatten(), preds.flatten())
 
-    return f1_score(labels, preds, average="macro", zero_division=0)
+    return avg_loss, f1, acc
 
 # -------------------------- TRAIN ONE MODEL --------------------------
 def train_model(model_name, train_csv, out_dir, epochs=2):
@@ -103,7 +121,6 @@ def train_model(model_name, train_csv, out_dir, epochs=2):
     tr, val = train_test_split(df, test_size=0.1, random_state=42)
 
     local_path = f"/kaggle/working/{model_name}-local"
-
     tokenizer = AutoTokenizer.from_pretrained(local_path, local_files_only=True)
 
     tr_ds = TextDataset(tr.text.values, tr[LABEL_COLS].values, tokenizer, 128)
@@ -123,13 +140,26 @@ def train_model(model_name, train_csv, out_dir, epochs=2):
     best_f1 = 0
 
     for ep in range(epochs):
-        loss = train_epoch(model, tr_loader, optimizer, scheduler, device)
-        f1 = valid_epoch(model, val_loader, device)
-        print(f"Epoch {ep+1} | Loss={loss:.4f} | F1={f1:.4f}")
+        train_loss = train_epoch(model, tr_loader, optimizer, scheduler, device)
+        val_loss, val_f1, val_acc = valid_epoch(model, val_loader, device)
+        
+        print(f"Epoch {ep+1} | Loss={train_loss:.4f} | Val F1={val_f1:.4f} | Val Acc={val_acc:.4f}")
 
-        if f1 > best_f1:
-            best_f1 = f1
+        if val_f1 > best_f1:
+            best_f1 = val_f1
             torch.save(model.state_dict(), f"{out_dir}/best_model.pt")
+
+        # --- WandB Logging for EACH model in the ensemble ---
+        if WANDB_OK and wandb.run is not None:
+             # Use generic keys so they overlap in one chart, OR prefix if you want separate lines
+             # For Comparison, using prefix is safer in a single run
+            wandb.log({
+                f"{model_name}_epoch": ep+1,
+                f"{model_name}_train_loss": train_loss,
+                f"{model_name}_val_loss": val_loss,
+                f"{model_name}_val_accuracy": val_acc,
+                f"{model_name}_val_f1": val_f1
+            })
 
     print("BEST F1:", best_f1)
 
@@ -138,7 +168,6 @@ def predict_model(model_name, model_dir, test_csv, out_csv):
     print(f"\n🟩 Predicting with {model_name}")
 
     local_path = f"/kaggle/working/{model_name}-local"
-
     tokenizer = AutoTokenizer.from_pretrained(local_path, local_files_only=True)
 
     model = TransformerForMultiLabel(local_path, len(LABEL_COLS))
@@ -146,7 +175,6 @@ def predict_model(model_name, model_dir, test_csv, out_csv):
     model.eval()
 
     test_df = pd.read_csv(test_csv)
-
     ds = TextDataset(test_df.text.values, None, tokenizer, 128)
     loader = DataLoader(ds, batch_size=16)
 
@@ -186,7 +214,6 @@ def ensemble_results(test_csv):
 
 # -------------------------- MAIN --------------------------
 def main(args):
-
     MODELS = ["bert-base-uncased", "roberta-base", "distilroberta-base"]
 
     for model in MODELS:
@@ -199,29 +226,24 @@ def main(args):
 
 if __name__ == "__main__":
     p = argparse.ArgumentParser()
-
     p.add_argument("--train_csv", type=str, required=True)
     p.add_argument("--test_csv", type=str, required=True)
     p.add_argument("--epochs", type=int, default=2)
-
-    # ⭐ NEW ARGUMENTS (Fix)
     p.add_argument("--output_dir", type=str, default="/kaggle/working/ensemble-run")
     p.add_argument("--wandb_project", type=str, default=None)
     p.add_argument("--run_name", type=str, default="ensemble-run")
-
     args = p.parse_args()
 
-    # ⭐ WandB Init (optional)
-    if args.wandb_project:
+    # WandB Init
+    if args.wandb_project and WANDB_OK:
         try:
-            import wandb
-            from kaggle_secrets import UserSecretsClient
-
             key = UserSecretsClient().get_secret("WANDB_API_KEY")
             wandb.login(key=key)
-
             wandb.init(project=args.wandb_project, name=args.run_name, config=vars(args))
-        except:
-            print("⚠️ WandB not available, continuing without logging.")
+        except Exception as e:
+            print(f"⚠️ WandB Init Failed: {e}")
 
     main(args)
+
+    if args.wandb_project and WANDB_OK:
+        wandb.finish()

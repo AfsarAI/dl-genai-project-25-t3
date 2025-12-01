@@ -1,4 +1,4 @@
-# Kaggle-ready train.py (TF-IDF + MLP) with full W&B online support
+# Kaggle-ready train.py (TF-IDF + MLP) with FULL WandB Logging
 
 import argparse
 import os
@@ -7,7 +7,7 @@ import pandas as pd
 import numpy as np
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.model_selection import train_test_split
-from sklearn.metrics import f1_score
+from sklearn.metrics import f1_score, accuracy_score  # Added accuracy_score
 import warnings
 warnings.filterwarnings("ignore")
 
@@ -66,11 +66,6 @@ def load_data(path):
 
 # -------------- W&B Setup for Kaggle --------------
 def setup_wandb(project, run_name, args_dict):
-    """
-    Safe W&B init for Kaggle:
-      - If Kaggle secret exists → ONLINE
-      - Else → OFFLINE
-    """
     user_secrets = UserSecretsClient()
     key = None
     try:
@@ -80,13 +75,12 @@ def setup_wandb(project, run_name, args_dict):
 
     if key:
         wandb.login(key=key)
+        # reinit=True allows multiple runs in same session if needed
         run = wandb.init(project=project, name=run_name, config=args_dict, reinit=True)
-        print("[W&B] Online mode enabled.")
         return run
     else:
         os.environ["WANDB_MODE"] = "offline"
         run = wandb.init(project=project, name=run_name, config=args_dict, reinit=True)
-        print("[W&B] Offline mode enabled.")
         return run
 
 # ---------------------------------------------------
@@ -109,7 +103,7 @@ def build_and_train(X_train_texts, X_val_texts, y_train, y_val, max_features, ep
 
     for epoch in range(epochs):
         model.train()
-        total_loss = 0
+        train_loss = 0
         for X_batch, y_batch in train_loader:
             X_batch, y_batch = X_batch.to(device), y_batch.to(device)
             optimizer.zero_grad()
@@ -117,34 +111,53 @@ def build_and_train(X_train_texts, X_val_texts, y_train, y_val, max_features, ep
             loss = criterion(outputs, y_batch)
             loss.backward()
             optimizer.step()
-            total_loss += loss.item()
+            train_loss += loss.item()
+        
+        avg_train_loss = train_loss / len(train_loader)
 
-        # Validation
+        # Validation Loop (Now calculates Loss + Accuracy + F1)
         model.eval()
-        preds, labels = [], []
+        val_loss = 0
+        preds_list, labels_list = [], []
+        
         with torch.no_grad():
             for X_batch, y_batch in val_loader:
-                X_batch = X_batch.to(device)
+                X_batch, y_batch = X_batch.to(device), y_batch.to(device)
                 outputs = model(X_batch)
+                
+                # Calculate val loss
+                loss = criterion(outputs, y_batch)
+                val_loss += loss.item()
+                
+                # Predictions
                 pred = (torch.sigmoid(outputs) > 0.5).cpu().numpy()
-                preds.append(pred)
-                labels.append(y_batch.numpy())
+                preds_list.append(pred)
+                labels_list.append(y_batch.cpu().numpy())
 
-        preds = np.vstack(preds)
-        labels = np.vstack(labels)
-        macro_f1 = f1_score(labels, preds, average='macro')
+        preds_final = np.vstack(preds_list)
+        labels_final = np.vstack(labels_list)
+        
+        avg_val_loss = val_loss / len(val_loader)
+        macro_f1 = f1_score(labels_final, preds_final, average='macro')
+        acc = accuracy_score(labels_final.flatten(), preds_final.flatten()) # Flatten for overall accuracy
 
-        print(f"Epoch {epoch+1}/{epochs} | Loss: {total_loss:.4f} | Val Macro F1: {macro_f1:.4f}")
+        print(f"Epoch {epoch+1}/{epochs} | Train Loss: {avg_train_loss:.4f} | Val Loss: {avg_val_loss:.4f} | Val F1: {macro_f1:.4f} | Val Acc: {acc:.4f}")
 
+        # --- LOGGING TO WANDB ---
         if use_wandb and WANDB_AVAILABLE:
-            wandb.log({"train_loss": total_loss, "val_macro_f1": macro_f1})
+            wandb.log({
+                "epoch": epoch + 1,
+                "train_loss": avg_train_loss,
+                "val_loss": avg_val_loss,
+                "val_accuracy": acc,
+                "val_f1": macro_f1
+            })
 
         # Save best model
         if macro_f1 > best_f1:
             best_f1 = macro_f1
             os.makedirs(output_dir, exist_ok=True)
             torch.save(model.state_dict(), os.path.join(output_dir, "scratch_model.pth"))
-            print("Saved best model.")
 
     return vect, model, best_f1
 
@@ -153,10 +166,8 @@ def save_artifacts(vect, outdir):
     joblib.dump(vect, os.path.join(outdir, "tfidf_vectorizer.joblib"))
 
 def main(args):
-    # ------------------ W&B INIT ---------------------
     if args.use_wandb and WANDB_AVAILABLE:
-        wandb_run = setup_wandb(args.wandb_project, args.run_name, vars(args))
-    # --------------------------------------------------
+        setup_wandb(args.wandb_project, args.run_name, vars(args))
 
     df = load_data(args.train_csv)
     texts = df[args.text_col].fillna("").astype(str).values
@@ -173,12 +184,9 @@ def main(args):
     )
 
     print("[INFO] Best Val Macro F1:", best_f1)
-
     save_artifacts(vect, args.output_dir)
-    print("[INFO] Saved artifacts to:", args.output_dir)
 
     if args.use_wandb and WANDB_AVAILABLE:
-        wandb.log({"best_val_macro_f1": best_f1})
         wandb.finish()
 
 if __name__ == "__main__":

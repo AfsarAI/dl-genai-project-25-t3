@@ -4,7 +4,7 @@ import random
 import numpy as np
 import pandas as pd
 from sklearn.model_selection import train_test_split
-from sklearn.metrics import f1_score
+from sklearn.metrics import f1_score, accuracy_score # Added accuracy
 from tqdm import tqdm
 
 import torch
@@ -71,14 +71,14 @@ class GenericTransformer(nn.Module):
 
 def kaggle_wandb_init(project, run_name, args):
     if not WANDB_OK:
-        return None
+        return
     try:
         key = UserSecretsClient().get_secret("WANDB_API_KEY")
         wandb.login(key=key)
-        return wandb.init(project=project, name=run_name, config=vars(args))
+        wandb.init(project=project, name=run_name, config=vars(args), reinit=True)
     except:
         os.environ["WANDB_MODE"] = "offline"
-        return wandb.init(project=project, name=run_name, config=vars(args))
+        wandb.init(project=project, name=run_name, config=vars(args), reinit=True)
 
 def train_epoch(model, loader, opt, sch, device):
     model.train()
@@ -100,16 +100,21 @@ def train_epoch(model, loader, opt, sch, device):
 def val_epoch(model, loader, device):
     model.eval()
     all_logits, all_labels = [], []
+    val_losses = []
+    criterion = nn.BCEWithLogitsLoss()
+    
     with torch.no_grad():
         for batch in loader:
             ids = batch["input_ids"].to(device)
             mask = batch["attention_mask"].to(device)
+            labels = batch["labels"].to(device)
 
-            labels = batch["labels"].cpu().numpy()
-            logits = model(ids, mask).cpu().numpy()
+            logits = model(ids, mask)
+            loss = criterion(logits, labels)
+            val_losses.append(loss.item())
 
-            all_logits.append(logits)
-            all_labels.append(labels)
+            all_logits.append(logits.cpu().numpy())
+            all_labels.append(labels.cpu().numpy())
 
     logits = np.vstack(all_logits)
     labels = np.vstack(all_labels)
@@ -117,7 +122,11 @@ def val_epoch(model, loader, device):
     probs = 1/(1+np.exp(-logits))
     preds = (probs >= 0.5).astype(int)
 
-    return f1_score(labels, preds, average="macro", zero_division=0)
+    f1 = f1_score(labels, preds, average="macro", zero_division=0)
+    acc = accuracy_score(labels.flatten(), preds.flatten())
+    avg_loss = np.mean(val_losses)
+
+    return avg_loss, f1, acc
 
 def main(args):
     df = pd.read_csv(args.train_csv)
@@ -147,18 +156,27 @@ def main(args):
 
     for epoch in range(args.epochs):
         print(f"\nEpoch {epoch+1}/{args.epochs}")
-        loss = train_epoch(model, train_loader, optimizer, scheduler, device)
-        f1 = val_epoch(model, val_loader, device)
+        train_loss = train_epoch(model, train_loader, optimizer, scheduler, device)
+        val_loss, val_f1, val_acc = val_epoch(model, val_loader, device)
 
-        print(f"Loss={loss:.4f} | Val F1={f1:.4f}")
+        print(f"Train Loss={train_loss:.4f} | Val Loss={val_loss:.4f} | Val F1={val_f1:.4f} | Val Acc={val_acc:.4f}")
 
-        if args.wandb_project:
-            wandb.log({"train_loss": loss, "val_f1": f1})
+        if args.wandb_project and WANDB_OK:
+            wandb.log({
+                "epoch": epoch + 1,
+                "train_loss": train_loss,
+                "val_loss": val_loss,
+                "val_accuracy": val_acc,
+                "val_f1": val_f1
+            })
 
-        if f1 > best_f1:
-            best_f1 = f1
+        if val_f1 > best_f1:
+            best_f1 = val_f1
             torch.save(model.state_dict(), f"{args.output_dir}/best_model.pt")
             print("Saved BEST!")
+
+    if args.wandb_project and WANDB_OK:
+        wandb.finish()
 
     print("\nBest F1:", best_f1)
 
