@@ -11,7 +11,7 @@ from transformers import AutoTokenizer, AutoConfig, AutoModel
 from transformers import get_linear_schedule_with_warmup
 from torch.optim import AdamW
 
-# --- WANDB SETUP ---
+# WANDB SETUP
 try:
     import wandb
     from kaggle_secrets import UserSecretsClient
@@ -22,7 +22,7 @@ except:
 LABEL_COLS = ["anger","fear","joy","sadness","surprise"]
 os.environ["TRANSFORMERS_NO_ADDITIONAL_TEMPLATES"] = "1"
 
-# -------------------------- DATASET --------------------------
+# DATASET
 class TextDataset(Dataset):
     def __init__(self, texts, labels, tokenizer, max_len):
         self.texts = texts
@@ -46,7 +46,7 @@ class TextDataset(Dataset):
             item["labels"] = torch.tensor(self.labels[idx], dtype=torch.float)
         return item
 
-# -------------------------- MODEL --------------------------
+# MODEL
 class TransformerForMultiLabel(torch.nn.Module):
     def __init__(self, model_path, n_labels, dropout=0.1):
         super().__init__()
@@ -63,7 +63,7 @@ class TransformerForMultiLabel(torch.nn.Module):
         pooled = (last * mask).sum(1) / mask.sum(1).clamp(min=1e-9)
         return self.classifier(self.dropout(pooled))
 
-# -------------------------- TRAINING FUNCTIONS --------------------------
+#  TRAINING FUNCTIONS
 def train_epoch(model, loader, optimizer, scheduler, device):
     model.train()
     losses = []
@@ -113,7 +113,7 @@ def valid_epoch(model, loader, device):
 
     return avg_loss, f1, acc
 
-# -------------------------- TRAIN ONE MODEL --------------------------
+# TRAIN ONE MODEL
 def train_model(model_name, train_csv, out_dir, epochs=2):
     print(f"\n🔥 TRAINING: {model_name}")
 
@@ -163,7 +163,7 @@ def train_model(model_name, train_csv, out_dir, epochs=2):
 
     print("BEST F1:", best_f1)
 
-# -------------------------- PREDICT --------------------------
+# PREDICT
 def predict_model(model_name, model_dir, test_csv, out_csv):
     print(f"\n🟩 Predicting with {model_name}")
 
@@ -197,7 +197,7 @@ def predict_model(model_name, model_dir, test_csv, out_csv):
     out.to_csv(out_csv, index=False)
     print("Saved:", out_csv)
 
-# -------------------------- ENSEMBLE COMBINE --------------------------
+# ENSEMBLE COMBINE
 def ensemble_results(test_csv):
     print("\n🤝 Creating ENSEMBLE...")
 
@@ -212,7 +212,7 @@ def ensemble_results(test_csv):
     final.to_csv("/kaggle/working/submission.csv", index=False)
     print("Saved ENSEMBLE → submission.csv")
 
-# -------------------------- MAIN --------------------------
+# MAIN
 def main(args):
     MODELS = ["bert-base-uncased", "roberta-base", "distilroberta-base"]
 

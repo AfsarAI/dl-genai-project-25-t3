@@ -1,4 +1,4 @@
-# Kaggle-ready train.py (TF-IDF + MLP) with FULL WandB Logging
+# train.py (TF-IDF + MLP) with FULL WandB Logging
 
 import argparse
 import os
@@ -7,7 +7,7 @@ import pandas as pd
 import numpy as np
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.model_selection import train_test_split
-from sklearn.metrics import f1_score, accuracy_score  # Added accuracy_score
+from sklearn.metrics import f1_score, accuracy_score
 import warnings
 warnings.filterwarnings("ignore")
 
@@ -64,7 +64,7 @@ class MLP(nn.Module):
 def load_data(path):
     return pd.read_csv(path)
 
-# -------------- W&B Setup for Kaggle --------------
+# W&B Setup
 def setup_wandb(project, run_name, args_dict):
     user_secrets = UserSecretsClient()
     key = None
@@ -75,7 +75,6 @@ def setup_wandb(project, run_name, args_dict):
 
     if key:
         wandb.login(key=key)
-        # reinit=True allows multiple runs in same session if needed
         run = wandb.init(project=project, name=run_name, config=args_dict, reinit=True)
         return run
     else:
@@ -83,7 +82,6 @@ def setup_wandb(project, run_name, args_dict):
         run = wandb.init(project=project, name=run_name, config=args_dict, reinit=True)
         return run
 
-# ---------------------------------------------------
 
 def build_and_train(X_train_texts, X_val_texts, y_train, y_val, max_features, epochs, batch_size, lr, output_dir, use_wandb):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -115,7 +113,7 @@ def build_and_train(X_train_texts, X_val_texts, y_train, y_val, max_features, ep
         
         avg_train_loss = train_loss / len(train_loader)
 
-        # Validation Loop (Now calculates Loss + Accuracy + F1)
+        # Validation Loop
         model.eval()
         val_loss = 0
         preds_list, labels_list = [], []
@@ -143,7 +141,7 @@ def build_and_train(X_train_texts, X_val_texts, y_train, y_val, max_features, ep
 
         print(f"Epoch {epoch+1}/{epochs} | Train Loss: {avg_train_loss:.4f} | Val Loss: {avg_val_loss:.4f} | Val F1: {macro_f1:.4f} | Val Acc: {acc:.4f}")
 
-        # --- LOGGING TO WANDB ---
+        # LOGGING TO WANDB
         if use_wandb and WANDB_AVAILABLE:
             wandb.log({
                 "epoch": epoch + 1,
