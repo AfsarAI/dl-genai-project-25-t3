@@ -149,6 +149,20 @@ def train_model(model_name, train_csv, out_dir, epochs=2):
             best_f1 = val_f1
             torch.save(model.state_dict(), f"{out_dir}/best_model.pt")
 
+            # Save HuggingFace Deployment Format
+            save_path = f"{out_dir}/deploy_model"
+            os.makedirs(save_path, exist_ok=True)
+            
+            # Load HF model class for saving
+            hf_model = AutoModel.from_pretrained(local_path, local_files_only=True)
+            hf_model.load_state_dict(model.state_dict(), strict=False)
+            hf_model.save_pretrained(save_path)
+            
+            tokenizer.save_pretrained(save_path)
+            
+            print("💾 Saved deployable model →", save_path)
+
+
         # --- WandB Logging for EACH model in the ensemble ---
         if WANDB_OK and wandb.run is not None:
              # Use generic keys so they overlap in one chart, OR prefix if you want separate lines
